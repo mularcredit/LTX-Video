@@ -16,7 +16,9 @@ RUN pip install --no-cache-dir \
     imageio \
     imageio-ffmpeg \
     opencv-python-headless \
-    einops
+    einops \
+    tiktoken \
+    protobuf
 
 COPY . .
 
