@@ -8,7 +8,7 @@ def download_models():
     os.makedirs("/app/models", exist_ok=True)
     hf_hub_download(
         repo_id="Lightricks/LTX-Video",
-        filename="ltx-2.3-22b-distilled.safetensors",
+        filename="ltxv-13b-0.9.8-distilled.safetensors",
         local_dir="/app/models"
     )
 
