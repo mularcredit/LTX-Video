@@ -4,9 +4,18 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y git curl ffmpeg
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir runpod huggingface_hub
+RUN pip install --no-cache-dir \
+    runpod \
+    huggingface_hub \
+    torch \
+    torchvision \
+    diffusers \
+    transformers \
+    accelerate \
+    sentencepiece \
+    imageio \
+    imageio-ffmpeg \
+    opencv-python-headless
 
 COPY . .
 
