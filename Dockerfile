@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir \
     sentencepiece \
     imageio \
     imageio-ffmpeg \
-    opencv-python-headless
+    opencv-python-headless \
+    einops
 
 COPY . .
 
