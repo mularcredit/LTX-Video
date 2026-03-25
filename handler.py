@@ -5,11 +5,11 @@ from huggingface_hub import hf_hub_download
 
 # Download model on first run
 def download_models():
-    os.makedirs("/app/models", exist_ok=True)
-    hf_hub_download(
+    from huggingface_hub import snapshot_download
+    snapshot_download(
         repo_id="Lightricks/LTX-Video",
-        filename="ltxv-13b-0.9.8-distilled.safetensors",
-        local_dir="/app/models"
+        local_dir="/app/models",
+        ignore_patterns=["*.git*", "*.md"]
     )
 
 def handler(job):
