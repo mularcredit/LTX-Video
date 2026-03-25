@@ -4,30 +4,27 @@ import os
 import base64
 import tempfile
 
-def load_pipeline():
-    from diffusers import LTXPipeline
-    from diffusers.utils import export_to_video
+from diffusers import LTXPipeline
+from diffusers.utils import export_to_video
 
-    pipe = LTXPipeline.from_pretrained(
-        "Lightricks/LTX-Video",
-        torch_dtype=torch.bfloat16
-    )
-    pipe.to("cuda")
-    return pipe
-
-# Load once when worker starts
-pipe = load_pipeline()
+# Load model once when worker starts
+print("Loading LTX-Video pipeline...")
+pipe = LTXPipeline.from_pretrained(
+    "Lightricks/LTX-Video",
+    torch_dtype=torch.bfloat16
+)
+pipe.to("cuda")
+print("Model loaded!")
 
 def handler(job):
-    from diffusers.utils import export_to_video
-
     input_data = job["input"]
+    
     prompt = input_data.get("prompt", "")
-    negative_prompt = input_data.get("negative_prompt", "worst quality, blurry, jittery, distorted")
+    negative_prompt = input_data.get("negative_prompt", "worst quality, inconsistent motion, blurry, jittery, distorted")
     height = input_data.get("height", 480)
     width = input_data.get("width", 704)
     num_frames = input_data.get("num_frames", 121)
-    num_inference_steps = input_data.get("num_inference_steps", 8)
+    num_inference_steps = input_data.get("num_inference_steps", 50)
     seed = input_data.get("seed", 42)
 
     video = pipe(
@@ -37,7 +34,7 @@ def handler(job):
         width=width,
         num_frames=num_frames,
         num_inference_steps=num_inference_steps,
-        generator=torch.Generator().manual_seed(seed)
+        generator=torch.Generator("cuda").manual_seed(seed)
     ).frames[0]
 
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
