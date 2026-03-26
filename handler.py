@@ -4,32 +4,29 @@ import os
 import base64
 import tempfile
 
-# Force CUDA environment variables
+# ── CUDA env vars ──────────────────────────────────────────────────────────────
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 os.environ['TORCH_CUDA_ARCH_LIST'] = '7.0 7.5 8.0 8.6 8.9 9.0'
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
-os.environ['TORCH_FORCE_CUDA'] = '1'
 
-# Verify CUDA is working before loading model
+# ── Fix: cuDNN "No execution plans" on LTX attention ──────────────────────────
+# Must be set BEFORE any model is loaded
+torch.backends.cuda.enable_cudnn_sdp(False)   # kills the failing cuDNN backend
+torch.backends.cuda.enable_flash_sdp(True)    # use Flash Attention if available
+torch.backends.cuda.enable_math_sdp(True)     # fallback math kernel always on
+
+# ── CUDA sanity check ─────────────────────────────────────────────────────────
 print("Checking CUDA setup...")
 if torch.cuda.is_available():
-    print(f"✅ CUDA is available")
-    print(f"   GPU: {torch.cuda.get_device_name(0)}")
-    print(f"   Compute Capability: {torch.cuda.get_device_capability(0)}")
-    print(f"   CUDA Version: {torch.version.cuda}")
-    
-    # Test CUDA tensor creation
-    try:
-        test = torch.tensor([1.0]).cuda()
-        print("✅ CUDA tensor test passed")
-        del test
-        torch.cuda.empty_cache()
-    except Exception as e:
-        print(f"❌ CUDA test failed: {e}")
-        raise
+    print(f"✅ CUDA available | GPU: {torch.cuda.get_device_name(0)} | "
+          f"CC: {torch.cuda.get_device_capability(0)} | "
+          f"cuDNN: {torch.backends.cudnn.version()}")
+    test = torch.tensor([1.0]).cuda()
+    del test
+    torch.cuda.empty_cache()
+    print("✅ CUDA tensor test passed")
 else:
-    print("❌ CUDA is NOT available")
-    raise RuntimeError("CUDA not available")
+    raise RuntimeError("❌ CUDA not available")
 
 pipe = None
 
@@ -41,48 +38,53 @@ def load_pipeline():
         pipe = LTXPipeline.from_pretrained(
             "Lightricks/LTX-Video",
             cache_dir="/runpod-volume/models",
-            torch_dtype=torch.bfloat16
+            torch_dtype=torch.bfloat16,   # bfloat16 is safer than float16 on Ampere+
         )
-        print("Moving pipeline to CUDA...")
         pipe.to("cuda")
-        print("✅ Model loaded on GPU!")
+        # Optional: shave VRAM with attention slicing if you hit OOM
+        # pipe.enable_attention_slicing()
+        print("✅ Pipeline loaded on GPU")
     return pipe
 
 def handler(job):
     from diffusers.utils import export_to_video
 
     pipeline = load_pipeline()
-    input_data = job["input"]
+    inp = job["input"]
 
-    prompt = input_data.get("prompt", "")
-    negative_prompt = input_data.get("negative_prompt", "worst quality, inconsistent motion, blurry")
-    height = input_data.get("height", 480)
-    width = input_data.get("width", 704)
-    num_frames = input_data.get("num_frames", 121)
-    num_inference_steps = input_data.get("num_inference_steps", 50)
-    seed = input_data.get("seed", 42)
+    prompt           = inp.get("prompt", "")
+    negative_prompt  = inp.get("negative_prompt", "worst quality, inconsistent motion, blurry")
+    height           = inp.get("height", 480)
+    width            = inp.get("width", 704)
+    num_frames       = inp.get("num_frames", 121)
+    num_steps        = inp.get("num_inference_steps", 50)
+    seed             = inp.get("seed", 42)
 
-    print(f"Generating video for: {prompt[:50]}...")
-    
-    video = pipeline(
+    print(f"Generating: '{prompt[:60]}...' | {width}x{height} | {num_frames}f | {num_steps} steps")
+
+    result = pipeline(
         prompt=prompt,
         negative_prompt=negative_prompt,
         height=height,
         width=width,
         num_frames=num_frames,
-        num_inference_steps=num_inference_steps,
-        generator=torch.Generator("cuda").manual_seed(seed)
-    ).frames[0]
+        num_inference_steps=num_steps,
+        generator=torch.Generator("cuda").manual_seed(seed),
+    )
+
+    video = result.frames[0]
 
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
-        export_to_video(video, f.name, fps=24)
-        with open(f.name, "rb") as video_file:
-            video_b64 = base64.b64encode(video_file.read()).decode("utf-8")
-        os.unlink(f.name)
+        tmp_path = f.name
 
-    # Clean up
+    export_to_video(video, tmp_path, fps=24)
+
+    with open(tmp_path, "rb") as vf:
+        video_b64 = base64.b64encode(vf.read()).decode("utf-8")
+
+    os.unlink(tmp_path)
     torch.cuda.empty_cache()
-    
+
     return {"video_base64": video_b64}
 
 runpod.serverless.start({"handler": handler})
